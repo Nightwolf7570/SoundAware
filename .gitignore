@@ -1,0 +1,28 @@
+# Environment variables
+.env
+.env.*
+.env.local
+
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Hackathon CLI data (local only)
+.hackathon/
+
+# Logs
+*.log
+npm-debug.log*
