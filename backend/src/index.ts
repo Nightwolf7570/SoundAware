@@ -36,6 +36,18 @@ export class ConversationalAwarenessBackend {
     this.app = express();
     this.app.use(express.json());
     
+    // Enable CORS for frontend
+    this.app.use((req, res, next) => {
+      res.header('Access-Control-Allow-Origin', '*');
+      res.header('Access-Control-Allow-Methods', 'GET, PUT, POST, DELETE, OPTIONS');
+      res.header('Access-Control-Allow-Headers', 'Content-Type');
+      if (req.method === 'OPTIONS') {
+        res.sendStatus(200);
+      } else {
+        next();
+      }
+    });
+    
     // Initialize services
     this.wsManager = new WebSocketManagerImpl();
     this.voiceProfileService = new VoiceProfileServiceImpl();
@@ -144,12 +156,10 @@ export class ConversationalAwarenessBackend {
       console.log(`Client disconnected: ${data.clientId}`);
     });
 
-    // Volume action handler
+    // Volume action handler - broadcast to all clients
     this.volumeDispatcher.on('volume_action', (action: VolumeAction) => {
-      // Broadcast to all connected clients
-      for (const clientId of this.getConnectedClients()) {
-        this.wsManager.sendVolumeAction(action, clientId);
-      }
+      console.log(`Broadcasting volume action: ${action.type}`);
+      this.wsManager.broadcastVolumeAction(action);
     });
 
     // Error handler warnings
@@ -161,6 +171,8 @@ export class ConversationalAwarenessBackend {
 
   private async processAudioChunk(clientId: string, chunk: AudioBuffer): Promise<void> {
     try {
+      console.log(`[DEBUG] Processing audio chunk: ${chunk.length} bytes from ${clientId}`);
+      
       // Step 1: Check against ignore list
       const matchResult = await this.voiceProfileService.matchesIgnoreList(chunk);
       
@@ -172,32 +184,48 @@ export class ConversationalAwarenessBackend {
 
       // Step 2: Send to transcription service
       if (this.transcriptionService) {
+        // Start stream if not connected (lazy connection)
+        if (!this.transcriptionService.isConnected()) {
+          console.log('Starting Deepgram stream on first audio...');
+          await this.transcriptionService.startStream((partialText: string) => {
+            console.log(`Partial: ${partialText}`);
+          });
+          console.log('Deepgram stream started');
+        }
+        console.log(`[DEBUG] Sending ${chunk.length} bytes to Deepgram`);
         await this.transcriptionService.sendAudio(chunk);
+      } else {
+        console.log('[DEBUG] No transcription service available');
       }
     } catch (error) {
+      console.error('[DEBUG] Error in processAudioChunk:', error);
       globalErrorHandler.recordFailure('audio_processing', error as Error);
       // Continue processing next chunk - don't throw
     }
   }
 
-  private async handleTranscript(clientId: string, text: string, confidence: number, isPartial: boolean): Promise<void> {
+  private async handleTranscript(text: string, confidence: number, isPartial: boolean, transcriptId: string = ''): Promise<void> {
     try {
+      // Create transcript object
+      const transcript = {
+        id: transcriptId || `transcript-${Date.now()}`,
+        text,
+        confidence,
+        timestamp: new Date(),
+        isPartial,
+        audioSegmentId: ''
+      };
+
+      // Broadcast transcript to all connected clients
+      this.wsManager.broadcastTranscript(transcript);
+      console.log(`Transcript: "${text}" (partial: ${isPartial}, confidence: ${(confidence * 100).toFixed(1)}%)`);
+
       if (isPartial) {
-        // Forward partial transcript to frontend
-        // This is handled by the transcription service events
+        // Don't analyze partial transcripts for attention
         return;
       }
 
       // Step 3: Analyze for attention
-      const transcript = {
-        id: '',
-        text,
-        confidence,
-        timestamp: new Date(),
-        isPartial: false,
-        audioSegmentId: ''
-      };
-
       const decision = await this.attentionEngine.analyzeTranscript(
         transcript,
         this.configManager.getSensitivityLevel()
@@ -211,12 +239,6 @@ export class ConversationalAwarenessBackend {
     } catch (error) {
       globalErrorHandler.recordFailure('transcript_processing', error as Error);
     }
-  }
-
-  private getConnectedClients(): string[] {
-    // This would need to be implemented in WebSocketManager
-    // For now, return empty array
-    return [];
   }
 
   private async applyConfiguration(): Promise<void> {
@@ -239,16 +261,34 @@ export class ConversationalAwarenessBackend {
     // Apply timeout
     this.volumeDispatcher.setSilenceTimeout(config.silenceTimeoutMs);
     
-    // Initialize transcription service if API key is set
+    // Initialize transcription service if API key is set (but don't start stream yet)
     if (config.deepgramApiKey) {
+      // Close existing service if any
+      if (this.transcriptionService) {
+        await this.transcriptionService.closeStream();
+      }
+      
       this.transcriptionService = new TranscriptionServiceImpl({
         apiKey: config.deepgramApiKey
       });
       
       // Set up transcript handlers
-      this.transcriptionService.on('final_transcript', (transcript) => {
-        this.handleTranscript('', transcript.text, transcript.confidence, false);
+      this.transcriptionService.on('partial_transcript', (data: { text: string; confidence: number }) => {
+        this.handleTranscript(data.text, data.confidence, true);
       });
+      
+      this.transcriptionService.on('final_transcript', (transcript) => {
+        this.handleTranscript(transcript.text, transcript.confidence, false, transcript.id);
+      });
+      
+      // Handle connection closed - will reconnect when audio arrives
+      this.transcriptionService.on('connection_closed', () => {
+        console.log('Deepgram connection closed - will reconnect when audio arrives');
+      });
+      
+      console.log('Transcription service initialized (will connect when audio arrives)');
+    } else {
+      console.warn('No Deepgram API key configured - transcription disabled');
     }
     
     // Apply LLM setting

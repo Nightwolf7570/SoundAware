@@ -9,7 +9,7 @@ export interface VolumeActionCallback {
 
 export class VolumeActionDispatcherImpl extends EventEmitter implements IVolumeActionDispatcher {
   private silenceTimer: NodeJS.Timeout | null = null;
-  private silenceTimeoutMs: number = 5000; // Default 5 seconds
+  private silenceTimeoutMs: number = 10000; // Default 10 seconds
   private currentVolumeState: 'normal' | 'lowered' = 'normal';
   private lastActionTimestamp: Date | null = null;
   private actionCallback: VolumeActionCallback | null = null;
@@ -46,36 +46,40 @@ export class VolumeActionDispatcherImpl extends EventEmitter implements IVolumeA
   }
 
   public async dispatchAction(decision: AttentionDecision, sensitivity: number): Promise<void> {
-    // Reset silence timer on any speech detection
-    this.resetSilenceTimer();
-
     let action: VolumeActionModel | null = null;
 
     switch (decision) {
       case AttentionDecision.DEFINITELY_TO_ME:
         // Always lower volume for definite attention
         action = this.createLowerVolumeAction(decision, 0.95);
+        // Reset silence timer - conversation is active
+        this.resetSilenceTimer();
         break;
 
       case AttentionDecision.PROBABLY_TO_ME:
         // Only lower volume if sensitivity is above 0.5
         if (sensitivity > 0.5) {
           action = this.createLowerVolumeAction(decision, 0.7);
+          // Reset silence timer - conversation is active
+          this.resetSilenceTimer();
         }
         break;
 
       case AttentionDecision.IGNORE:
         // Don't send any action for ignored speech
-        // The silence timer will handle volume restoration
+        // Don't reset the timer - let it count down to restore volume
+        // Only start timer if volume is currently lowered
+        if (this.currentVolumeState === 'lowered' && !this.silenceTimer) {
+          this.startSilenceTimer();
+        }
         break;
     }
 
     if (action) {
       this.sendAction(action);
+      // Start silence timer after lowering volume
+      this.startSilenceTimer();
     }
-
-    // Start silence timer to restore volume after timeout
-    this.startSilenceTimer();
   }
 
   private createLowerVolumeAction(decision: AttentionDecision, confidence: number): VolumeActionModel {

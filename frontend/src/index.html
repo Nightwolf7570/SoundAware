@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' ws://localhost:3001; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline';">
+  <title>Conversational Aware Audio</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Draggable title bar area -->
+    <div class="title-bar-drag"></div>
+    
+    <!-- Status Header -->
+    <header class="status-header">
+      <div class="header-content">
+        <h1 class="app-title">Conversational Aware Audio</h1>
+        <p class="status-subtitle" id="statusSubtitle">Initializing...</p>
+      </div>
+      <div class="status-line" id="statusLine"></div>
+    </header>
+
+    <!-- Main Content Area -->
+    <main class="main-content">
+      <!-- Left Panel - Controls -->
+      <aside class="controls-panel glass-panel">
+        <h2 class="panel-title">Controls</h2>
+        
+        <div class="control-group">
+          <label class="control-label">Sensitivity</label>
+          <div class="slider-container">
+            <input type="range" id="sensitivitySlider" min="1" max="5" value="3" class="glow-slider">
+            <div class="slider-labels">
+              <span>Low</span>
+              <span>High</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="toggle-row">
+            <span class="toggle-label">Auto-lower volume</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="autoLowerToggle" checked>
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="toggle-row">
+            <span class="toggle-label">Use intent model</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="intentModelToggle">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <div class="control-group">
+          <div class="toggle-row">
+            <span class="toggle-label">Ignore unknown speakers</span>
+            <label class="toggle-switch">
+              <input type="checkbox" id="ignoreUnknownToggle">
+              <span class="toggle-slider"></span>
+            </label>
+          </div>
+        </div>
+
+        <button class="glass-button" id="profilesBtn">
+          Manage Audio Profiles
+        </button>
+
+        <div class="connection-status">
+          <div class="status-indicator" id="connectionIndicator"></div>
+          <span id="connectionText">Disconnected</span>
+        </div>
+      </aside>
+
+      <!-- Center - Volume Orb -->
+      <section class="orb-section">
+        <div class="orb-container">
+          <div class="orb-glow" id="orbGlow"></div>
+          <div class="orb" id="volumeOrb">
+            <div class="orb-inner">
+              <span class="volume-value" id="volumeValue">100</span>
+              <span class="volume-label">%</span>
+            </div>
+          </div>
+          <div class="orb-ring" id="orbRing"></div>
+          <div class="orb-particles" id="orbParticles"></div>
+        </div>
+        <p class="orb-status" id="orbStatus">System Volume</p>
+      </section>
+
+      <!-- Right Panel - Transcript Feed -->
+      <aside class="transcript-panel glass-panel">
+        <h2 class="panel-title">Live Transcript</h2>
+        <div class="transcript-feed" id="transcriptFeed">
+          <div class="empty-state">
+            <p>Waiting for speech...</p>
+          </div>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <!-- Profiles Modal -->
+  <div class="modal-overlay" id="profilesModal">
+    <div class="modal glass-panel">
+      <div class="modal-header">
+        <h2>Audio Profiles</h2>
+        <button class="modal-close" id="closeModal">×</button>
+      </div>
+      <div class="profiles-grid" id="profilesGrid">
+        <div class="profile-card">
+          <div class="profile-avatar" style="background: linear-gradient(135deg, #667eea, #764ba2);">J</div>
+          <div class="profile-info">
+            <h3>John</h3>
+            <span class="profile-timestamp">Last seen: 2 min ago</span>
+          </div>
+          <div class="profile-actions">
+            <button class="pill-button active">Prioritize</button>
+            <button class="pill-button">Neutral</button>
+            <button class="pill-button">Ignore</button>
+          </div>
+        </div>
+      </div>
+      <button class="glass-button add-profile-btn">
+        + Add New Profile
+      </button>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

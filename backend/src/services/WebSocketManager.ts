@@ -14,10 +14,18 @@ export interface ClientConnection {
 }
 
 export interface WebSocketMessage {
-  type: 'audio' | 'heartbeat' | 'config' | 'transcript' | 'volume_action' | 'ack';
+  type: 'audio' | 'heartbeat' | 'config' | 'transcript' | 'volume_action' | 'decision' | 'ack';
   payload?: any;
   timestamp: number;
   clientId?: string;
+}
+
+// Frontend audio message format (base64 encoded)
+export interface FrontendAudioMessage {
+  type: 'audio';
+  data: string; // Base64 encoded Float32Array
+  timestamp: number;
+  sampleRate: number;
 }
 
 export class WebSocketManagerImpl extends EventEmitter {
@@ -141,7 +149,7 @@ export class WebSocketManagerImpl extends EventEmitter {
 
     try {
       // Try to parse as JSON message first
-      const message = JSON.parse(data.toString()) as WebSocketMessage;
+      const message = JSON.parse(data.toString());
       
       switch (message.type) {
         case 'heartbeat':
@@ -152,12 +160,45 @@ export class WebSocketManagerImpl extends EventEmitter {
         case 'config':
           this.emit('config_update', { clientId, config: message.payload });
           break;
+        case 'audio':
+          // Handle frontend's base64-encoded audio format
+          this.handleFrontendAudio(clientId, message as FrontendAudioMessage);
+          break;
         default:
           console.warn(`Unknown message type: ${message.type}`);
       }
     } catch {
-      // Not JSON, treat as raw audio data
+      // Not JSON, treat as raw audio data (for test scripts)
       this.processAudioChunk(data as AudioBuffer, clientId);
+    }
+  }
+
+  /**
+   * Handle base64-encoded audio from the Electron frontend
+   */
+  private handleFrontendAudio(clientId: string, message: FrontendAudioMessage): void {
+    try {
+      // Decode base64 to Buffer
+      const binaryString = Buffer.from(message.data, 'base64');
+      
+      // Convert Float32Array bytes to Int16 PCM for Deepgram
+      // Frontend sends Float32Array (-1.0 to 1.0), Deepgram expects Int16 PCM
+      const float32 = new Float32Array(binaryString.buffer, binaryString.byteOffset, binaryString.length / 4);
+      const int16Buffer = Buffer.alloc(float32.length * 2);
+      
+      for (let i = 0; i < float32.length; i++) {
+        // Clamp and convert float to int16
+        const sample = Math.max(-1, Math.min(1, float32[i]));
+        const int16Sample = Math.round(sample * 32767);
+        int16Buffer.writeInt16LE(int16Sample, i * 2);
+      }
+      
+      console.log(`[DEBUG] Received audio: ${float32.length} samples -> ${int16Buffer.length} bytes PCM`);
+      
+      // Process as audio chunk
+      this.processAudioChunk(int16Buffer as AudioBuffer, clientId);
+    } catch (error) {
+      console.error('Error processing frontend audio:', error);
     }
   }
 
@@ -190,57 +231,65 @@ export class WebSocketManagerImpl extends EventEmitter {
   }
 
   public sendVolumeAction(action: VolumeAction, clientId: string): void {
-    const message: WebSocketMessage = {
-      type: 'volume_action',
-      payload: {
-        type: action.type,
-        timestamp: action.timestamp.toISOString(),
-        triggerReason: action.triggerReason,
-        confidence: action.confidence
-      },
-      timestamp: Date.now(),
-      clientId
+    // Send in frontend-expected format
+    const frontendMessage = {
+      type: 'decision',
+      decision: action.type,
+      confidence: action.confidence,
+      triggerPhrase: action.triggerReason || null // triggerReason is the AttentionDecision enum value
     };
 
-    this.sendToClient(clientId, message);
+    this.sendToClient(clientId, frontendMessage as any);
     this.emit('volume_action_sent', { clientId, action });
   }
 
-  public broadcastTranscript(transcript: Transcript): void {
-    const message: WebSocketMessage = {
-      type: 'transcript',
-      payload: {
-        id: transcript.id,
-        text: transcript.text,
-        confidence: transcript.confidence,
-        timestamp: transcript.timestamp.toISOString(),
-        isPartial: transcript.isPartial,
-        audioSegmentId: transcript.audioSegmentId
-      },
-      timestamp: Date.now()
+  /**
+   * Broadcast volume action to all connected clients
+   */
+  public broadcastVolumeAction(action: VolumeAction): void {
+    const frontendMessage = {
+      type: 'decision',
+      decision: action.type,
+      confidence: action.confidence,
+      triggerPhrase: action.triggerReason || null // triggerReason is the AttentionDecision enum value
     };
 
     for (const [clientId] of this.clients) {
-      this.sendToClient(clientId, message);
+      this.sendToClient(clientId, frontendMessage as any);
+    }
+    this.emit('volume_action_broadcast', { action });
+  }
+
+  public broadcastTranscript(transcript: Transcript): void {
+    // Send in frontend-expected format
+    const frontendMessage = {
+      type: 'transcript',
+      id: transcript.id,
+      text: transcript.text,
+      timestamp: transcript.timestamp instanceof Date 
+        ? transcript.timestamp.getTime() 
+        : transcript.timestamp,
+      isFinal: !transcript.isPartial
+    };
+
+    for (const [clientId] of this.clients) {
+      this.sendToClient(clientId, frontendMessage as any);
     }
   }
 
   public sendTranscriptToClient(transcript: Transcript, clientId: string): void {
-    const message: WebSocketMessage = {
+    // Send in frontend-expected format
+    const frontendMessage = {
       type: 'transcript',
-      payload: {
-        id: transcript.id,
-        text: transcript.text,
-        confidence: transcript.confidence,
-        timestamp: transcript.timestamp.toISOString(),
-        isPartial: transcript.isPartial,
-        audioSegmentId: transcript.audioSegmentId
-      },
-      timestamp: Date.now(),
-      clientId
+      id: transcript.id,
+      text: transcript.text,
+      timestamp: transcript.timestamp instanceof Date 
+        ? transcript.timestamp.getTime() 
+        : transcript.timestamp,
+      isFinal: !transcript.isPartial
     };
 
-    this.sendToClient(clientId, message);
+    this.sendToClient(clientId, frontendMessage as any);
   }
 
   private sendToClient(clientId: string, message: WebSocketMessage): boolean {
