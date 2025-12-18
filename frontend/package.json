@@ -1,10 +1,43 @@
 {
-  "name": "frontend",
+  "name": "smart-volume-control",
   "version": "1.0.0",
+  "description": "Smart Volume Control - Electron + React application",
+  "main": "./out/main/index.js",
   "scripts": {
-    "dev": "vite"
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "preview": "electron-vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@electron-toolkit/utils": "^3.0.0",
+    "better-sqlite3": "^11.6.0",
+    "electron-store": "^8.2.0",
+    "uuid": "^11.0.3"
   },
   "devDependencies": {
-    "vite": "^7.3.0"
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.1.0",
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.14",
+    "@types/react-dom": "^18.3.4",
+    "@types/uuid": "^10.0.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "electron": "^33.2.1",
+    "electron-vite": "^2.3.0",
+    "fast-check": "^3.23.2",
+    "jsdom": "^25.0.1",
+    "postcss": "^8.4.49",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwindcss": "^3.4.17",
+    "typescript": "^5.7.2",
+    "vite": "^6.0.5",
+    "vitest": "^2.1.8"
   }
 }
