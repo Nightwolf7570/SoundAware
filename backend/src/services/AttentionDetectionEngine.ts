@@ -1,6 +1,7 @@
 // Attention Detection Engine - rule-based + optional LLM analysis
 import { EventEmitter } from 'events';
 import { AttentionDetectionEngine as IAttentionDetectionEngine, Transcript, AttentionDecision } from '../interfaces';
+import { LLMService, IntentAnalysis } from './LLMService';
 
 export interface DetectionResult {
   decision: AttentionDecision;
@@ -8,6 +9,7 @@ export interface DetectionResult {
   matchedKeywords: string[];
   matchedPatterns: string[];
   usedLLM: boolean;
+  llmReasoning?: string;
 }
 
 export interface LLMProvider {
@@ -18,6 +20,7 @@ export class AttentionDetectionEngineImpl extends EventEmitter implements IAtten
   private attentionKeywords: Set<string> = new Set(['hey', 'hello', 'excuse me', 'hi']);
   private userName: string = '';
   private llmProvider: LLMProvider | null = null;
+  private llmService: LLMService | null = null;
   private llmEnabled: boolean = false;
   private uncertaintyThreshold: number = 0.5;
   
@@ -40,6 +43,20 @@ export class AttentionDetectionEngineImpl extends EventEmitter implements IAtten
     super();
   }
 
+  public async initializeLLM(baseUrl?: string, model?: string): Promise<boolean> {
+    this.llmService = new LLMService({
+      baseUrl: baseUrl || 'http://localhost:11434',
+      model: model || 'llama3.2:1b'
+    });
+    
+    const available = await this.llmService.checkAvailability();
+    if (available) {
+      this.llmEnabled = true;
+      console.log('LLM intent detection enabled');
+    }
+    return available;
+  }
+
   public setLLMProvider(provider: LLMProvider): void {
     this.llmProvider = provider;
     this.llmEnabled = true;
@@ -50,9 +67,13 @@ export class AttentionDetectionEngineImpl extends EventEmitter implements IAtten
   }
 
   public enableLLM(): void {
-    if (this.llmProvider) {
+    if (this.llmProvider || this.llmService?.getIsAvailable()) {
       this.llmEnabled = true;
     }
+  }
+
+  public isLLMEnabled(): boolean {
+    return this.llmEnabled && (this.llmService?.getIsAvailable() || this.llmProvider !== null);
   }
 
   public setUncertaintyThreshold(threshold: number): void {
@@ -78,6 +99,11 @@ export class AttentionDetectionEngineImpl extends EventEmitter implements IAtten
         matchedPatterns: [],
         usedLLM: false
       };
+    }
+
+    // Add to LLM conversation history for context
+    if (this.llmService) {
+      this.llmService.addToHistory(transcript.text);
     }
 
     // Check for definite attention keywords
@@ -110,17 +136,47 @@ export class AttentionDetectionEngineImpl extends EventEmitter implements IAtten
       return result;
     }
 
-    // Rule-based detection is uncertain - consider LLM if enabled
+    // Rule-based detection is uncertain - use LLM as enhancement layer
     const ruleBasedConfidence = this.calculateRuleBasedConfidence(text);
     
+    // Try LLM analysis for uncertain cases (runs in parallel with heuristics)
+    if (this.llmEnabled && this.llmService?.getIsAvailable()) {
+      try {
+        const llmAnalysis = await this.llmService.analyzeIntent(transcript.text);
+        
+        // LLM says it's directed at user with high confidence
+        if (llmAnalysis.isDirectedAtUser && llmAnalysis.confidence >= 0.7) {
+          const result: DetectionResult = {
+            decision: llmAnalysis.confidence >= 0.85 
+              ? AttentionDecision.DEFINITELY_TO_ME 
+              : AttentionDecision.PROBABLY_TO_ME,
+            confidence: llmAnalysis.confidence,
+            matchedKeywords: [],
+            matchedPatterns: [],
+            usedLLM: true,
+            llmReasoning: llmAnalysis.reasoning
+          };
+          console.log(`LLM detected attention: ${llmAnalysis.reasoning} (${(llmAnalysis.confidence * 100).toFixed(0)}%)`);
+          this.emit('detection', result);
+          return result;
+        }
+        
+        // LLM analyzed but didn't find it directed at user
+        console.log(`LLM: not directed (${llmAnalysis.reasoning})`);
+        
+      } catch (error) {
+        console.error('LLM analysis failed, using heuristics only:', error);
+        this.emit('llm_fallback', { error, text });
+      }
+    }
+
+    // Fallback to legacy LLM provider if configured
     if (ruleBasedConfidence < this.uncertaintyThreshold && this.llmEnabled && this.llmProvider) {
       try {
         const llmResult = await this.invokeLLM(text, sensitivity);
         return llmResult;
       } catch (error) {
-        // LLM failed, fall back to rule-based
-        console.error('LLM analysis failed, falling back to rule-based:', error);
-        this.emit('llm_fallback', { error, text });
+        console.error('Legacy LLM analysis failed:', error);
       }
     }
 

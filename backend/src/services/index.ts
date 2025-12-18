@@ -6,3 +6,4 @@ export * from './AttentionDetectionEngine';
 export * from './ConfigurationManager';
 export * from './VolumeActionDispatcher';
 export * from './ErrorHandler';
+export * from './LLMService';

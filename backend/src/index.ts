@@ -291,11 +291,21 @@ export class ConversationalAwarenessBackend {
       console.warn('No Deepgram API key configured - transcription disabled');
     }
     
+    // Initialize LLM service (Ollama) for intent detection
+    const llmAvailable = await this.attentionEngine.initializeLLM(
+      process.env.OLLAMA_URL || 'http://localhost:11434',
+      process.env.OLLAMA_MODEL || 'llama3.2:1b'
+    );
+    
     // Apply LLM setting
-    if (config.llmEnabled) {
+    if (config.llmEnabled && llmAvailable) {
       this.attentionEngine.enableLLM();
+      console.log('LLM intent detection enabled');
     } else {
       this.attentionEngine.disableLLM();
+      if (config.llmEnabled && !llmAvailable) {
+        console.log('LLM requested but Ollama not available - using heuristics only');
+      }
     }
   }
 
